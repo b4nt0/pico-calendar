@@ -1,0 +1,17 @@
+*.pyc
+ve/
+*~
+.DS_Store
+ignore
+*.sw*
+build/
+bin/
+node_modules/
+vendor/
+*.log
+.idea/
+.cache/
+*.prof
+__temp/
+.env
+.aws
