@@ -5,18 +5,8 @@ import framebuf
 import utime
 from writer import Writer
 import freesans20
+import courier20
 
-# Display resolution
-EPD_WIDTH       = 800
-EPD_HEIGHT      = 480
-
-RST_PIN         = 12
-DC_PIN          = 8
-CS_PIN          = 9
-BUSY_PIN        = 13
-
-EPD_TEXT_WIDTH = 80
-EPD_TEXT_HEIGHT = 48
 
 class ScreenImage(framebuf.FrameBuffer):
     def __init__(self, buffer, width, height):
@@ -28,18 +18,31 @@ class ScreenImage(framebuf.FrameBuffer):
         
 
 class Screen:
+    # Display resolution
+    EPD_WIDTH       = 800
+    EPD_HEIGHT      = 480
+
+    RST_PIN         = 12
+    DC_PIN          = 8
+    CS_PIN          = 9
+    BUSY_PIN        = 13
+
+    EPD_TEXT_WIDTH = 80
+    EPD_TEXT_HEIGHT = 48
+
     def __init__(self):
-        self.reset_pin = Pin(RST_PIN, Pin.OUT)
+        self.reset_pin = Pin(Screen.RST_PIN, Pin.OUT)
         
-        self.busy_pin = Pin(BUSY_PIN, Pin.IN, Pin.PULL_UP)
-        self.cs_pin = Pin(CS_PIN, Pin.OUT)
-        self.width = EPD_WIDTH
-        self.height = EPD_HEIGHT
+        self.busy_pin = Pin(Screen.BUSY_PIN, Pin.IN, Pin.PULL_UP)
+        self.cs_pin = Pin(Screen.CS_PIN, Pin.OUT)
+        self.width = Screen.EPD_WIDTH
+        self.height = Screen.EPD_HEIGHT
+        self.x_middle = int(self.width / 2)
         self.text_row = 1
         
         self.spi = SPI(1)
         self.spi.init(baudrate=4000_000)
-        self.dc_pin = Pin(DC_PIN, Pin.OUT)        
+        self.dc_pin = Pin(Screen.DC_PIN, Pin.OUT)        
 
         self.buffer_black = bytearray(self.height * self.width // 8)
         self.buffer_red = bytearray(self.height * self.width // 8)
@@ -49,21 +52,35 @@ class Screen:
         self.imagered.fill(0x00)
         
         self.writer_sans_black = Writer(self.imageblack, freesans20)
-        Writer.set_textpos(self.imageblack, 0, 0)
+        self.writer_sans_red = Writer(self.imagered, freesans20)
+        self.writer_courier_black = Writer(self.imageblack, courier20)
+        self.writer_courier_red = Writer(self.imagered, courier20)
     
         self.init()
         
     def text(self, text_str, row=0, col=1, red=False):
         display_row = row if row > 0 else self.text_row
         
-        if display_row > EPD_TEXT_HEIGHT: return
-        if col + len(text_str) > EPD_TEXT_WIDTH: return
+        if display_row > Screen.EPD_TEXT_HEIGHT: return
+        if col + len(text_str) > Screen.EPD_TEXT_WIDTH: return
         
         image = self.imageblack if not red else self.imagered
         
         image.text(text_str, 1 + (col - 1) * 10, 1 + (display_row - 1) * 10, 0x00 if not red else 0xff)
-        if row == 0: self.text_row += 1        
+        if row == 0: self.text_row += 1
+        
+    def text_sans(self, text_str, row, col, red=False):
+        image = self.imageblack if not red else self.imagered
+        writer = self.writer_sans_black if not red else self.writer_sans_red
+        Writer.set_textpos(image, row, col)
+        writer.printstring(text_str, invert=not red)        
 
+    def text_courier(self, text_str, row, col, red=False, inverse=False):
+        image = self.imageblack if not red else self.imagered
+        writer = self.writer_courier_black if not red else self.writer_courier_red
+        Writer.set_textpos(image, row, col)
+        writer.printstring(text_str, invert=not red if not inverse else red)
+        
     def digital_write(self, pin, value):
         pin.value(value)
 
@@ -247,22 +264,3 @@ class Screen:
         self.WaitUntilIdle()
         self.send_command(0x07) # deep sleep
         self.send_data(0xa5)
-
-if __name__=='__main__':
-    epd = Screen()
-    epd.Clear()
-    
-    epd.writer_sans_black.printstring('Hey, this is a font test')
-    
-    #epd.text("Waveshare")
-    #epd.text("Pico_ePaper-7.5-B", red=True)
-    #epd.text("Raspberry Pico")
-    
-    epd.display()
-    epd.delay_ms(500)
-    
-    if False:
-        epd.Clear()
-        epd.delay_ms(2000)
-        print("sleep")
-        epd.sleep()
