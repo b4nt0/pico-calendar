@@ -118,11 +118,12 @@ class Screen:
         self.digital_write(self.cs_pin, 1)
 
     def WaitUntilIdle(self):
-        print("e-Paper busy")
+        print("waiting until screen idle... ", end='')
         while(self.digital_read(self.busy_pin) == 0):   # Wait until the busy_pin goes LOW
             self.delay_ms(20)
+            print('.', end='')
         self.delay_ms(20) 
-        print("e-Paper busy release")  
+        print("done")  
 
     def TurnOnDisplay(self):
         self.send_command(0x12) # DISPLAY REFRESH
