@@ -6,6 +6,7 @@ import utime
 from writer import Writer
 import freesans20
 import courier20
+import gc
 
 
 class ScreenImage(framebuf.FrameBuffer):
@@ -44,10 +45,17 @@ class Screen:
         self.spi.init(baudrate=4000_000)
         self.dc_pin = Pin(Screen.DC_PIN, Pin.OUT)        
 
+        print('Free memory before buffer black {}'.format(gc.mem_free()))
         self.buffer_black = bytearray(self.height * self.width // 8)
+        gc.collect()
+        print('Free memory before buffer red {}'.format(gc.mem_free()))
         self.buffer_red = bytearray(self.height * self.width // 8)
+        gc.collect()
+        
+        print('Free memory before images {}'.format(gc.mem_free()))
         self.imageblack = ScreenImage(self.buffer_black, self.width, self.height)
         self.imagered = ScreenImage(self.buffer_red, self.width, self.height)
+        print('Free memory after images {}'.format(gc.mem_free()))
         self.imageblack.fill(0xff)
         self.imagered.fill(0x00)
         

@@ -1,16 +1,17 @@
-# from ecowerf import Ecowerf
 from epaper import Screen
 from calendar import Calendar
 from garbage import Garbage
+from weather import Weather
 from machine import RTC
 import network
 import secrets
 import time
 import urequests
 import gc
+import micropython
 
 
-if __name__=='__main__':
+def calendar_cycle():
     print('Free memory {}'.format(gc.mem_free()))
     
     # Establish an internet connection
@@ -61,9 +62,16 @@ if __name__=='__main__':
         
         
         # Get weather
+        weather = Weather()
+        forecast = weather.get_weather(dt)
+        
+        print(forecast)
         
         # Release all the requests memory
+        print('Free memory before drawing, before gc {}'.format(gc.mem_free()))
         gc.collect()
+        print('Free memory before drawing, after gc {}'.format(gc.mem_free()))
+        print(micropython.mem_info())
         
         # Draw calendar
         epd = Screen()
@@ -74,6 +82,8 @@ if __name__=='__main__':
             calendar = Calendar(epd, dt)
             calendar.draw_calendar()
             calendar.draw_garbage(schedule)
+            calendar.draw_weather(forecast)
+            calendar.draw_announcements()
             calendar.draw_last_updated()
             epd.display()
             epd.delay_ms(500)
@@ -92,10 +102,11 @@ if __name__=='__main__':
         del epd
         del schedule
         del garbage
+        del forecast
         
         gc.collect()
         
-        print('Free memory {}'.format(gc.mem_free()))
-    
-    if False:
-        epd.Clear()
+        print('Free memory {}'.format(gc.mem_free()))    
+
+
+calendar_cycle()

@@ -5,6 +5,7 @@ import time
 class DateUtil:
     months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
     days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     
     @staticmethod
     def date_to_iso(dt_tuple):
@@ -35,6 +36,10 @@ class DateUtil:
     def iso_to_nice(iso_string):
         dt = DateUtil.iso_to_date(iso_string)
         return DateUtil.date_to_nice(dt)
+    
+    @staticmethod
+    def dates_equal(dt1, dt2):
+        return dt1[0] == dt2[0] and dt1[1] == dt2[1] and dt1[2] == dt2[2]
 
 
 class Calendar:
@@ -45,6 +50,56 @@ class Calendar:
         self.screen = screen
         self.today = today_dt_tuple
         
+        # Announcements
+        self.announce_gs_today = False
+        self.announce_gs_tomorrow = False
+        self.announce_precip_today = None
+        self.announce_precip_tomorrow = None
+        
+        # Initialize coordinate variables
+        # Year is 4 digits, e.g. 2022
+        # Month is 1-12
+        # Mday is 1-31
+        # Weekday is 0-6 for Mon-Sun
+        self.year = self.today[0]
+        self.month = self.today[1]
+        self.mday = self.today[2]
+        self.weekday = self.today[6]
+        
+        self.day_coordinates = []
+        
+        week_excess_from_1st = (self.mday - 1) % 7
+        self.weekday_1st = (self.weekday - week_excess_from_1st + 7) % 7
+        
+        day_col_width_px = Calendar.LETTER_WIDTH * 3
+        first_day_col_start_px = int(self.screen.x_middle - day_col_width_px * 7 / 2)
+        first_day_row_start_px = 70
+        
+        self.left_border_px = first_day_col_start_px
+        
+        self.days = DateUtil.days_in_months[self.month - 1]
+        wday = self.weekday_1st
+        if self.month == 2:
+            # Check for leap year
+            if self.year % 400 == 0:
+                self.days = 29
+            elif self.year % 100 == 0:
+                pass
+            elif self.year % 4 == 0:
+                self.days = 29
+        
+        day_row = 1
+        day = 1
+        while day <= self.days:
+            self.day_coordinates.append((first_day_row_start_px + Calendar.LETTER_HEIGHT * day_row, first_day_col_start_px + wday * day_col_width_px))
+            
+            day += 1
+            wday += 1
+            if wday > 6:
+                wday = 0
+                day_row += 1
+        
+        
     def draw_garbage(self, garbage_schedule):
         tomorrow = DateUtil.add_days(self.today)
         self.screen.text('Garbage schedule', 10, 1)
@@ -54,56 +109,61 @@ class Calendar:
             
         else:
             print_row = 12
+            self.announce_gs_today = False
+            self.announce_gs_tomorrow = False
             for item in garbage_schedule:
-                red = item['date'] == self.today or item['date'] == tomorrow
+                _td = DateUtil.dates_equal(item['date'], self.today)
+                _tm = DateUtil.dates_equal(item['date'], tomorrow)
+                self.announce_gs_today = self.announce_gs_today or _td
+                self.announce_gs_tomorrow = self.announce_gs_tomorrow or _tm
+                
+                red = _td or _tm
                 self.screen.text(item['date_format'], print_row, 1, red)
                 self.screen.text(item['type'], print_row + 1, 1, red)
-                print_row += 3                
+                
+                if item['date'][1] == self.month:
+                    coordinate = self.day_coordinates[item['date'][2] - 1]
+                    self.screen.imagered.hline(coordinate[1], coordinate[0] + Calendar.LETTER_HEIGHT - 2, Calendar.LETTER_WIDTH * 2, 0xff)
+                    self.screen.imagered.hline(coordinate[1], coordinate[0] + Calendar.LETTER_HEIGHT - 1, Calendar.LETTER_WIDTH * 2, 0xff)
+                print_row += 3
+                
+    def draw_weather(self, forecast):
+        weather_left_px = 600
+        weather_top_px = 120
+        weather_temp_left_px = 700
         
-
+        weather_top = 10
+        weather_left = 60
+        
+        self.screen.text('Weather forecast', weather_top, weather_left)
+        weather_top += 2
+        
+        for f in forecast:
+            self.screen.text(f['dt_format'], weather_top, weather_left)
+            weather_top += 2
+            
+            if f['dt_format'] == 'Today':
+                self.screen.text_sans(str(f['temp']) + 'C', weather_top_px, weather_temp_left_px)
+            else:
+                self.screen.text_sans('{}C - {}C'.format(f['tempmin'], f['tempmax']), weather_top_px, weather_temp_left_px)                
+            weather_top_px += 20
+        
+                
     def draw_calendar(self):
-        # Year is 4 digits, e.g. 2022
-        # Month is 1-12
-        # Mday is 1-31
-        # Weekday is 0-6 for Mon-Sun
-        year = self.today[0]
-        month = self.today[1]
-        mday = self.today[2]
-        weekday = self.today[6]
+        self.screen.text_sans(str(self.year), 5, self.screen.x_middle - Calendar.LETTER_WIDTH * 2)        
+        self.screen.text_courier(DateUtil.months[self.month - 1], 35, int(self.screen.x_middle - Calendar.LETTER_WIDTH * len(DateUtil.months[self.month - 1]) / 2))
         
-        self.screen.text_sans(str(year), 5, self.screen.x_middle - Calendar.LETTER_WIDTH * 2)
-        
-        months = DateUtil.months
-        days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        self.screen.text_courier(months[month - 1], 35, int(self.screen.x_middle - Calendar.LETTER_WIDTH * len(months[month - 1]) / 2))
-        
-        week_excess_from_1st = (mday - 1) % 7
-        weekday_1st = (weekday - week_excess_from_1st + 7) % 7
-        
-        day_col_width_px = Calendar.LETTER_WIDTH * 3
-        first_day_col_start_px = int(self.screen.x_middle - day_col_width_px * 7 / 2)
-        first_day_row_start_px = 70
-        
-        day_row = 1
         day = 1
-        days = days_in_months[month - 1]
-        wday = weekday_1st
-        if month == 2:
-            # Check for leap year
-            if year % 400 == 0:
-                days = 29
-            elif year % 100 == 0:
-                pass
-            elif year % 4 == 0:
-                days = 29
-        
-        while day <= days:
+        wday = self.weekday_1st
+        day_row = 1
+        while day <= self.days:
             day_str = str(day)
             if len(day_str) == 1: day_str = ' ' + day_str
+            coordinate = self.day_coordinates[day - 1]
             self.screen.text_courier(day_str,
-                                     first_day_row_start_px + Calendar.LETTER_HEIGHT * day_row, first_day_col_start_px + wday * day_col_width_px,
+                                     coordinate[0], coordinate[1],
                                      red=(wday in [5,6]),
-                                     inverse=(day == mday))
+                                     inverse=(day == self.mday))
             
             day += 1
             wday += 1
@@ -111,6 +171,27 @@ class Calendar:
                 wday = 0
                 day_row += 1
                 
+    def draw_announcements(self):
+        if not self.announce_gs_today and not self.announce_gs_tomorrow:
+            return
+        
+        
+        self.screen.text_sans('Announcements', 240, self.left_border_px)
+        
+        next_announcement_row = 260
+        
+        if self.announce_gs_today or self.announce_gs_tomorrow:
+            line = "Garbage collection "
+            if self.announce_gs_today and self.announce_gs_tomorrow:
+                line += "TODAY and TOMORROW"
+            elif self.announce_gs_today:
+                line += "TODAY"
+            elif self.announce_gs_tomorrow:
+                line += "TOMORROW"
+
+            self.screen.text_sans(line, next_announcement_row, self.left_border_px)
+            next_announcement_row += 20
+
     def draw_last_updated(self):
         self.screen.text('Last updated ' + DateUtil.date_to_nice(self.today), 48, 40)
         
