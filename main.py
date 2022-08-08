@@ -7,9 +7,12 @@ import network
 import secrets
 import time
 import urequests
+import gc
 
 
 if __name__=='__main__':
+    print('Free memory {}'.format(gc.mem_free()))
+    
     # Establish an internet connection
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -49,8 +52,7 @@ if __name__=='__main__':
         garbage = Garbage()
         
         print(' - getting a token...')
-        token = garbage.get_token()
-        print(token)
+        garbage.get_token()
         
         print(' - getting schedule...')
         schedule = garbage.get_schedule(dt)
@@ -58,28 +60,42 @@ if __name__=='__main__':
             print(s)
         
         
-        if False:
+        # Get weather
         
-            # Get weather
-            
-            # Draw calendar
-            epd = Screen()
+        # Release all the requests memory
+        gc.collect()
+        
+        # Draw calendar
+        epd = Screen()
+        
+        try:
             epd.Clear()
             
-            calendar = Calendar(epd)
-            calendar.draw_calendar(dt)
+            calendar = Calendar(epd, dt)
+            calendar.draw_calendar()
+            calendar.draw_garbage(schedule)
+            calendar.draw_last_updated()
             epd.display()
             epd.delay_ms(500)
-            
+                
+            epd.delay_ms(2000)
+        
+        finally:
+            print("Screen sleep")
+            epd.sleep()
+        
         print('All done')
         
+        print('Free memory {}'.format(gc.mem_free()))
         
-        #ecowerf = Ecowerf()
-        #t = ecowerf.get_token()
-        #print(t)        
+        del calendar
+        del epd
+        del schedule
+        del garbage
+        
+        gc.collect()
+        
+        print('Free memory {}'.format(gc.mem_free()))
     
     if False:
         epd.Clear()
-        epd.delay_ms(2000)
-        print("sleep")
-        epd.sleep()

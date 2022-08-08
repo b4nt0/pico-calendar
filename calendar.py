@@ -41,18 +41,35 @@ class Calendar:
     LETTER_HEIGHT = 20
     LETTER_WIDTH = 13
     
-    def __init__(self, screen):
+    def __init__(self, screen, today_dt_tuple):
         self.screen = screen
+        self.today = today_dt_tuple
+        
+    def draw_garbage(self, garbage_schedule):
+        tomorrow = DateUtil.add_days(self.today)
+        self.screen.text('Garbage schedule', 10, 1)
 
-    def draw_calendar(self, dt_tuple):
+        if len(garbage_schedule) == 0:
+            self.screen.text('Nothing planned!', 12, 1)
+            
+        else:
+            print_row = 12
+            for item in garbage_schedule:
+                red = item['date'] == self.today or item['date'] == tomorrow
+                self.screen.text(item['date_format'], print_row, 1, red)
+                self.screen.text(item['type'], print_row + 1, 1, red)
+                print_row += 3                
+        
+
+    def draw_calendar(self):
         # Year is 4 digits, e.g. 2022
         # Month is 1-12
         # Mday is 1-31
         # Weekday is 0-6 for Mon-Sun
-        year = dt_tuple[0]
-        month = dt_tuple[1]
-        mday = dt_tuple[2]
-        weekday = dt_tuple[6]
+        year = self.today[0]
+        month = self.today[1]
+        mday = self.today[2]
+        weekday = self.today[6]
         
         self.screen.text_sans(str(year), 5, self.screen.x_middle - Calendar.LETTER_WIDTH * 2)
         
@@ -93,3 +110,7 @@ class Calendar:
             if wday > 6:
                 wday = 0
                 day_row += 1
+                
+    def draw_last_updated(self):
+        self.screen.text('Last updated ' + DateUtil.date_to_nice(self.today), 48, 40)
+        

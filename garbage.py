@@ -35,7 +35,9 @@ class Garbage:
         try:
             schedule_json = schedule_r.json()
             for item in schedule_json['items']:
-                result.append({'type': item['fraction']['name']['nl'], 'date': DateUtil.iso_to_nice(item['timestamp']) })
+                dt = DateUtil.iso_to_date(item['timestamp'])
+                dt_format = DateUtil.date_to_nice(dt)
+                result.append({'type': item['fraction']['name']['nl'], 'date': dt, 'date_format': dt_format })
                 
         finally:
             schedule_r.close()
