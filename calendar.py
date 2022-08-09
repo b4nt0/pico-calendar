@@ -102,10 +102,10 @@ class Calendar:
         
     def draw_garbage(self, garbage_schedule):
         tomorrow = DateUtil.add_days(self.today)
-        self.screen.text('Garbage schedule', 10, 1)
+        self.screen.text('Garbage schedule', 10, 5)
 
         if len(garbage_schedule) == 0:
-            self.screen.text('Nothing planned!', 12, 1)
+            self.screen.text('Nothing planned!', 12, 5)
             
         else:
             print_row = 12
@@ -118,8 +118,8 @@ class Calendar:
                 self.announce_gs_tomorrow = self.announce_gs_tomorrow or _tm
                 
                 red = _td or _tm
-                self.screen.text(item['date_format'], print_row, 1, red)
-                self.screen.text(item['type'], print_row + 1, 1, red)
+                self.screen.text(item['date_format'], print_row, 5, red)
+                self.screen.text(item['type'], print_row + 1, 5, red)
                 
                 if item['date'][1] == self.month:
                     coordinate = self.day_coordinates[item['date'][2] - 1]
@@ -128,26 +128,42 @@ class Calendar:
                 print_row += 3
                 
     def draw_weather(self, forecast):
-        weather_left_px = 600
-        weather_top_px = 120
-        weather_temp_left_px = 700
         
         weather_top = 10
-        weather_left = 60
+        weather_left = 55
+        weather_prec_prob = 57
         
         self.screen.text('Weather forecast', weather_top, weather_left)
         weather_top += 2
+        
+        weather_left_px = 550
+        weather_top_px = 110
+        weather_temp_left_px = 620
         
         for f in forecast:
             self.screen.text(f['dt_format'], weather_top, weather_left)
             weather_top += 2
             
             if f['dt_format'] == 'Today':
-                self.screen.text_sans(str(f['temp']) + 'C', weather_top_px, weather_temp_left_px)
-            else:
-                self.screen.text_sans('{}C - {}C'.format(f['tempmin'], f['tempmax']), weather_top_px, weather_temp_left_px)                
+                self.screen.text_sans('{}C'.format(f['temp']), weather_top_px, weather_temp_left_px)
+                weather_top_px += 20
+                weather_top += 2
+            
+            self.screen.text_sans('{}C - {}C'.format(f['tempmin'], f['tempmax']), weather_top_px, weather_temp_left_px)                
             weather_top_px += 20
-        
+            
+            if f['preciptype'] is not None and f['preciptype'] != 'None':
+                self.screen.text('~{}%'.format(int(f['precipprob'])), weather_top, weather_prec_prob)
+                self.screen.text_sans(f['preciptype'], weather_top_px, weather_temp_left_px)
+                weather_top += 2
+                weather_top_px += 20
+                if f['dt_format'] == 'Today':
+                    self.announce_precip_today = f['preciptype']
+                if f['dt_format'] == 'Tomorrow':
+                    self.announce_precip_tomorrow = f['preciptype']                    
+                
+            weather_top += 1
+            weather_top_px += 10
                 
     def draw_calendar(self):
         self.screen.text_sans(str(self.year), 5, self.screen.x_middle - Calendar.LETTER_WIDTH * 2)        
@@ -172,7 +188,7 @@ class Calendar:
                 day_row += 1
                 
     def draw_announcements(self):
-        if not self.announce_gs_today and not self.announce_gs_tomorrow:
+        if not self.announce_gs_today and not self.announce_gs_tomorrow and not self.announce_precip_today and not self.announce_precip_tomorrow:
             return
         
         
@@ -191,7 +207,15 @@ class Calendar:
 
             self.screen.text_sans(line, next_announcement_row, self.left_border_px)
             next_announcement_row += 20
+            
+        if self.announce_precip_today:
+            self.screen.text_sans('Today is {}'.format(self.announce_precip_today), next_announcement_row, self.left_border_px)
+            next_announcement_row += 20
+
+        if self.announce_precip_tomorrow:
+            self.screen.text_sans('Tomorrow is {}'.format(self.announce_precip_today), next_announcement_row, self.left_border_px)
+            next_announcement_row += 20
 
     def draw_last_updated(self):
-        self.screen.text('Last updated ' + DateUtil.date_to_nice(self.today), 48, 40)
+        self.screen.text('Last updated {ddd} at {hh}:{mm}'.format(ddd=DateUtil.date_to_nice(self.today), hh=self.today[3], mm=self.today[4]), 48, 25)
         

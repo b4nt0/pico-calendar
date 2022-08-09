@@ -11,9 +11,14 @@ import gc
 import micropython
 
 
-def calendar_cycle():
-    print('Free memory {}'.format(gc.mem_free()))
-    
+def calendar_update():
+    # ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    # erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    ebb = None
+    erb = None
+
+    print('Free memory with buffers {}'.format(gc.mem_free()))
+
     # Establish an internet connection
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -44,11 +49,13 @@ def calendar_cycle():
         finally:
             date_time_r.close()
 
-        print('Received datetime: ', dt, 'attempting to set RTC')
-        rtc = machine.RTC()
-        rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
+        print('Received datetime: ', dt)
+        
+        del ms
+        gc.collect()
          
         # Get garbage schedule
+        print('Free memory {}'.format(gc.mem_free()))
         print('Getting garbage schedule...')
         garbage = Garbage()
         
@@ -59,23 +66,19 @@ def calendar_cycle():
         schedule = garbage.get_schedule(dt)
         for s in schedule:
             print(s)
-        
+            
+        del garbage
+        gc.collect()        
         
         # Get weather
         weather = Weather()
         forecast = weather.get_weather(dt)
         
-        print(forecast)
-        
-        # Release all the requests memory
-        print('Free memory before drawing, before gc {}'.format(gc.mem_free()))
+        del weather
         gc.collect()
-        print('Free memory before drawing, after gc {}'.format(gc.mem_free()))
-        print(micropython.mem_info())
         
         # Draw calendar
-        epd = Screen()
-        
+        epd = Screen(ebb, erb)        
         try:
             epd.Clear()
             
@@ -96,17 +99,15 @@ def calendar_cycle():
         
         print('All done')
         
-        print('Free memory {}'.format(gc.mem_free()))
-        
-        del calendar
-        del epd
-        del schedule
-        del garbage
-        del forecast
-        
-        gc.collect()
-        
-        print('Free memory {}'.format(gc.mem_free()))    
+
+def calendar_cycle():
+    gc.collect()
+    print('Free memory {}'.format(gc.mem_free()))
+    calendar_update();    
+    gc.collect()        
+    print('Free memory {}'.format(gc.mem_free()))   
 
 
 calendar_cycle()
+time.sleep(60 * 60 * 6)
+machine.reset()

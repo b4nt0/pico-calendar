@@ -31,7 +31,7 @@ class Screen:
     EPD_TEXT_WIDTH = 80
     EPD_TEXT_HEIGHT = 48
 
-    def __init__(self):
+    def __init__(self, external_black_buffer, external_red_buffer):
         self.reset_pin = Pin(Screen.RST_PIN, Pin.OUT)
         
         self.busy_pin = Pin(Screen.BUSY_PIN, Pin.IN, Pin.PULL_UP)
@@ -41,21 +41,11 @@ class Screen:
         self.x_middle = int(self.width / 2)
         self.text_row = 1
         
-        self.spi = SPI(1)
-        self.spi.init(baudrate=4000_000)
-        self.dc_pin = Pin(Screen.DC_PIN, Pin.OUT)        
-
-        print('Free memory before buffer black {}'.format(gc.mem_free()))
-        self.buffer_black = bytearray(self.height * self.width // 8)
-        gc.collect()
-        print('Free memory before buffer red {}'.format(gc.mem_free()))
-        self.buffer_red = bytearray(self.height * self.width // 8)
-        gc.collect()
+        self.buffer_black = external_black_buffer or bytearray(self.height * self.width // 8)
+        self.buffer_red = external_red_buffer or bytearray(self.height * self.width // 8)
         
-        print('Free memory before images {}'.format(gc.mem_free()))
         self.imageblack = ScreenImage(self.buffer_black, self.width, self.height)
         self.imagered = ScreenImage(self.buffer_red, self.width, self.height)
-        print('Free memory after images {}'.format(gc.mem_free()))
         self.imageblack.fill(0xff)
         self.imagered.fill(0x00)
         
@@ -64,6 +54,10 @@ class Screen:
         self.writer_courier_black = Writer(self.imageblack, courier20)
         self.writer_courier_red = Writer(self.imagered, courier20)
     
+        self.spi = SPI(1)
+        self.spi.init(baudrate=4000_000)
+        self.dc_pin = Pin(Screen.DC_PIN, Pin.OUT)        
+
         self.init()
         
     def text(self, text_str, row=0, col=1, red=False):
