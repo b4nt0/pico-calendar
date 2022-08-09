@@ -11,6 +11,11 @@ import gc
 import micropython
 
 
+led_yellow = machine.Pin(15, machine.Pin.OUT)
+error = False
+notification = False
+
+
 def calendar_update():
     # ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
     # erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
@@ -30,10 +35,11 @@ def calendar_update():
         time.sleep(1)
         print('.', end='')
         attempts = attempts - 1
-   
+        
     if not wlan.isconnected():
        # Can't connect, print a message
-       print("can't connect to wifi")       
+       print("can't connect to wifi")
+       raise Exception("Can't connect to wifi")
         
     else:
         print('success')
@@ -88,6 +94,9 @@ def calendar_update():
             calendar.draw_weather(forecast)
             calendar.draw_announcements()
             calendar.draw_last_updated()
+            
+            important_announcement = calendar.announce_gs_today or calendar.announce_gs_tomorrow
+            
             epd.display()
             epd.delay_ms(500)
                 
@@ -98,16 +107,43 @@ def calendar_update():
             epd.sleep()
         
         print('All done')
+    return important_announcement
         
 
 def calendar_cycle():
     gc.collect()
     print('Free memory {}'.format(gc.mem_free()))
-    calendar_update();    
+    led_yellow.value(1)
+    result = False
+    exception = False
+    try:
+        result = calendar_update();
+    except:
+        exception = True
+    led_yellow.value(0)
     gc.collect()        
-    print('Free memory {}'.format(gc.mem_free()))   
+    print('Free memory {}'.format(gc.mem_free()))
+    return (result, exception)
 
 
-calendar_cycle()
-time.sleep(60 * 60 * 6)
+(r, e) = calendar_cycle()
+notification = r
+error = e
+sleep_time = 60 * 60 * 6
+if not error and not notification:
+    print('Sleeping...')
+    time.sleep(sleep_time)
+elif not error and notification:
+    print('Notification...')
+    while sleep_time > 0:
+        led_yellow.toggle()
+        time.sleep(5)
+        sleep_time -= 5
+else:
+    print('Error...')
+    while sleep_time > 0:
+        led_yellow.toggle()
+        time.sleep(2)
+        sleep_time -= 2
+        
 machine.reset()
