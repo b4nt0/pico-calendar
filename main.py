@@ -118,12 +118,28 @@ def calendar_cycle():
     exception = False
     try:
         result = calendar_update();
-    except:
+    except Exception as e:
         exception = True
+        import sys
+        sys.print_exception(e)
+
     led_yellow.value(0)
     gc.collect()        
     print('Free memory {}'.format(gc.mem_free()))
     return (result, exception)
+
+
+def light_sleep_long(duration_seconds):
+    max_light_sleep = 60 * 70
+    duration = duration_seconds
+    
+    while duration >= 0:
+        if duration >= max_light_sleep:
+            machine.lightsleep(max_light_sleep * 1000)
+            duration -= max_light_sleep
+        else:
+            machine.lightsleep(duration * 1000)
+            duration = 0
 
 
 (r, e) = calendar_cycle()
@@ -132,13 +148,17 @@ error = e
 sleep_time = 60 * 60 * 6
 if not error and not notification:
     print('Sleeping...')
-    time.sleep(sleep_time)
+    # time.sleep(sleep_time)
+    light_sleep_long(sleep_time)
 elif not error and notification:
     print('Notification...')
-    while sleep_time > 0:
-        led_yellow.toggle()
-        time.sleep(5)
-        sleep_time -= 5
+    #while sleep_time > 0:
+    #    led_yellow.toggle()
+    #    time.sleep(5)
+    #    sleep_time -= 5
+    print('For now just sleep anyway')
+    light_sleep_long(sleep_time)
+    
 else:
     print('Error...')
     while sleep_time > 0:
