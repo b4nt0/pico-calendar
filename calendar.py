@@ -152,15 +152,20 @@ class Calendar:
             self.screen.text_sans('{}C - {}C'.format(f['tempmin'], f['tempmax']), weather_top_px, weather_temp_left_px)                
             weather_top_px += 20
             
-            if f['preciptype'] is not None and f['preciptype'] != 'None':
+            if f['preciptype'] is not None and f['preciptype'] != 'None' and len(f['preciptype']) > 0:
+                if isinstance(f['preciptype'], str):
+                    precip = f['preciptype']
+                else:
+                    precip = ', '.join(f['preciptype'])
+                    
                 self.screen.text('~{}%'.format(int(f['precipprob'])), weather_top, weather_prec_prob)
-                self.screen.text_sans(f['preciptype'], weather_top_px, weather_temp_left_px)
+                self.screen.text_sans(precip, weather_top_px, weather_temp_left_px)
                 weather_top += 2
                 weather_top_px += 20
                 if f['dt_format'] == 'Today':
-                    self.announce_precip_today = f['preciptype']
+                    self.announce_precip_today = precip
                 if f['dt_format'] == 'Tomorrow':
-                    self.announce_precip_tomorrow = f['preciptype']                    
+                    self.announce_precip_tomorrow = precip
                 
             weather_top += 1
             weather_top_px += 10
