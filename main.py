@@ -10,6 +10,9 @@ import urequests
 import gc
 import micropython
 
+# Requires https://ghubcoder.github.io/posts/pico-w-deep-sleep-with-micropython/
+import picosleep
+
 
 led_yellow = machine.Pin(15, machine.Pin.OUT)
 error = False
@@ -135,10 +138,10 @@ def light_sleep_long(duration_seconds):
     
     while duration >= 0:
         if duration >= max_light_sleep:
-            machine.lightsleep(max_light_sleep * 1000)
+            picosleep.seconds(duration)
             duration -= max_light_sleep
         else:
-            machine.lightsleep(duration * 1000)
+            picosleep.seconds(duration)
             duration = 0
 
 
