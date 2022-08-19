@@ -213,12 +213,12 @@ class Calendar:
             self.screen.text_sans(line, next_announcement_row, self.left_border_px)
             next_announcement_row += 20
             
-        if self.announce_precip_today:
+        if self.announce_precip_today is not None and self.announce_precip_today != 'None':
             self.screen.text_sans('Today is {}'.format(self.announce_precip_today), next_announcement_row, self.left_border_px)
             next_announcement_row += 20
 
-        if self.announce_precip_tomorrow:
-            self.screen.text_sans('Tomorrow is {}'.format(self.announce_precip_today), next_announcement_row, self.left_border_px)
+        if self.announce_precip_tomorrow is not None and self.announce_precip_tomorrow != 'None':
+            self.screen.text_sans('Tomorrow is {}'.format(self.announce_precip_tomorrow), next_announcement_row, self.left_border_px)
             next_announcement_row += 20
 
     def draw_last_updated(self):
