@@ -166,7 +166,7 @@ else:
     print('Error...')
     while sleep_time > 0:
         led_yellow.toggle()
-        time.sleep(2)
+        light_sleep_long(2)
         sleep_time -= 2
         
 machine.reset()
