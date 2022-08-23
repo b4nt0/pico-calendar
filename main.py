@@ -9,6 +9,7 @@ import time
 import urequests
 import gc
 import micropython
+import sys
 
 # Requires https://ghubcoder.github.io/posts/pico-w-deep-sleep-with-micropython/
 import picosleep
@@ -17,18 +18,12 @@ import picosleep
 led_yellow = machine.Pin(15, machine.Pin.OUT)
 error = False
 notification = False
+wlan = network.WLAN(network.STA_IF)
 
-
-def calendar_update():
-    # ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
-    # erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
-    ebb = None
-    erb = None
-
-    print('Free memory with buffers {}'.format(gc.mem_free()))
-
+def connect():
+    global wlan
+    
     # Establish an internet connection
-    wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
     
@@ -38,7 +33,36 @@ def calendar_update():
         time.sleep(1)
         print('.', end='')
         attempts = attempts - 1
-        
+
+
+def disconnect():
+    # Disconnect LAN
+    global wlan
+    
+    if not wlan.isconnected(): return
+    
+    wlan.disconnect()
+    wlan.active(False)
+    attempts = 5
+    print("Attempting to disconnect...", end='')
+    while wlan.isconnected() and attempts > 0:
+        time.sleep(1)
+        print('.', end='')
+        attempts = attempts - 1        
+    
+
+
+def calendar_update():
+    global wlan
+    
+    # ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    # erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    ebb = None
+    erb = None
+
+    print('Free memory with buffers {}'.format(gc.mem_free()))
+
+    connect()
     if not wlan.isconnected():
        # Can't connect, print a message
        print("can't connect to wifi")
@@ -55,9 +79,12 @@ def calendar_update():
              
             ms = date_time_r.json()['milliseconds_since_epoch']
             dt = time.localtime(int(ms / 1000))
+            
         finally:
             date_time_r.close()
 
+        # rtc = machine.RTC()
+        # rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
         print('Received datetime: ', dt)
         
         del ms
@@ -84,6 +111,9 @@ def calendar_update():
         forecast = weather.get_weather(dt)
         
         del weather
+        
+        disconnect()
+        
         gc.collect()
         
         # Draw calendar
@@ -123,7 +153,6 @@ def calendar_cycle():
         result = calendar_update();
     except Exception as e:
         exception = True
-        import sys
         sys.print_exception(e)
 
     led_yellow.value(0)
@@ -133,22 +162,34 @@ def calendar_cycle():
 
 
 def light_sleep_long(duration_seconds):
-    max_light_sleep = 60 * 70
+    max_light_sleep = 5 * 1
     duration = duration_seconds
     
-    while duration >= 0:
+    print('Sleeping for {} sec, in pieces of {} sec'.format(duration_seconds, max_light_sleep))
+    
+    while duration > 0:
+        time.sleep_ms(100)
+        duration -= 1
+        
         if duration >= max_light_sleep:
-            picosleep.seconds(duration)
+            # machine.lightsleep(max_light_sleep * 1000)
+            picosleep.seconds(max_light_sleep)
             duration -= max_light_sleep
         else:
+            # machine.lightsleep(duration * 1000)
             picosleep.seconds(duration)
             duration = 0
+            
+        print('zzz... {}'.format(duration))
 
 
 (r, e) = calendar_cycle()
 notification = r
 error = e
-sleep_time = 60 * 60 * 6
+sleep_time = 60 * 60 * 4
+
+disconnect()    
+
 if not error and not notification:
     print('Sleeping...')
     # time.sleep(sleep_time)
@@ -164,6 +205,9 @@ elif not error and notification:
     
 else:
     print('Error...')
+    
+    sleep_time = 60 * 60 * 1
+    
     while sleep_time > 0:
         led_yellow.toggle()
         light_sleep_long(2)
