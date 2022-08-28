@@ -9,13 +9,15 @@ import time
 import urequests
 import gc
 import micropython
-import sys
 
 # Requires https://ghubcoder.github.io/posts/pico-w-deep-sleep-with-micropython/
-import picosleep
+# import picosleep
+# Commented out as picosleep does not wake up sometimes
 
 
 led_yellow = machine.Pin(15, machine.Pin.OUT)
+button = machine.Pin(16, machine.Pin.IN, machine.Pin.PULL_DOWN)
+
 error = False
 notification = False
 wlan = network.WLAN(network.STA_IF)
@@ -63,6 +65,7 @@ def calendar_update():
     print('Free memory with buffers {}'.format(gc.mem_free()))
 
     connect()
+    
     if not wlan.isconnected():
        # Can't connect, print a message
        print("can't connect to wifi")
@@ -88,7 +91,6 @@ def calendar_update():
         print('Received datetime: ', dt)
         
         del ms
-        gc.collect()
          
         # Get garbage schedule
         print('Free memory {}'.format(gc.mem_free()))
@@ -104,7 +106,6 @@ def calendar_update():
             print(s)
             
         del garbage
-        gc.collect()        
         
         # Get weather
         weather = Weather()
@@ -128,7 +129,7 @@ def calendar_update():
             calendar.draw_announcements()
             calendar.draw_last_updated()
             
-            important_announcement = calendar.announce_gs_today or calendar.announce_gs_tomorrow
+            important_announcement = calendar.announce_gs_tomorrow
             
             epd.display()
             epd.delay_ms(500)
@@ -152,8 +153,17 @@ def calendar_cycle():
     try:
         result = calendar_update();
     except Exception as e:
+        import sys
+        
         exception = True
         sys.print_exception(e)
+        
+        micropython.mem_info()
+        
+        # Log last exception
+        efile = open("last_exception.txt", "w")
+        sys.print_exception(e, efile)
+        efile.close()
 
     led_yellow.value(0)
     gc.collect()        
@@ -161,48 +171,76 @@ def calendar_cycle():
     return (result, exception)
 
 
-def light_sleep_long(duration_seconds):
+def light_sleep_long(duration_seconds, ignore_button=False):
+    global button
+    
+    if duration_seconds <= 0: return True
+    
     max_light_sleep = 5 * 1
     duration = duration_seconds
     
-    print('Sleeping for {} sec, in pieces of {} sec'.format(duration_seconds, max_light_sleep))
-    
+    accumulated01 = 0
     while duration > 0:
+        if not ignore_button and button.value() == 1:
+            return False
+        
         time.sleep_ms(100)
-        duration -= 1
+        accumulated01 += 1
+        if accumulated01 == 10:
+          duration -= 1
+          accumulated01 = 0
+        
+        if duration == 0: return True
         
         if duration >= max_light_sleep:
             # machine.lightsleep(max_light_sleep * 1000)
-            picosleep.seconds(max_light_sleep)
+            # picosleep.seconds(max_light_sleep)
+
+            # Dormant sleep does not wake up :(
+            time.sleep(max_light_sleep)
             duration -= max_light_sleep
         else:
             # machine.lightsleep(duration * 1000)
-            picosleep.seconds(duration)
+            # picosleep.seconds(duration)
+            
+            # Dormant sleep does not wake up :(
+            time.sleep(max_light_sleep)
             duration = 0
             
-        print('zzz... {}'.format(duration))
-
+    return True
+            
 
 (r, e) = calendar_cycle()
 notification = r
 error = e
 sleep_time = 60 * 60 * 4
 
-disconnect()    
+disconnect()
 
 if not error and not notification:
     print('Sleeping...')
     # time.sleep(sleep_time)
     light_sleep_long(sleep_time)
+    
 elif not error and notification:
     print('Notification...')
-    #while sleep_time > 0:
-    #    led_yellow.toggle()
-    #    time.sleep(5)
-    #    sleep_time -= 5
-    print('For now just sleep anyway')
-    light_sleep_long(sleep_time)
+    while sleep_time > 0:
+        led_yellow.value(0)
+        result = light_sleep_long(5)
+        if not result: break
+        
+        led_yellow.value(1)
+        result = light_sleep_long(1)
+        if not result: break
+        sleep_time -= 7
+        
+    led_yellow.value(0)
     
+    if sleep_time > 0:
+        light_sleep_long(10, True)
+        sleep_time -= 10
+        light_sleep_long(sleep_time)
+   
 else:
     print('Error...')
     
@@ -210,7 +248,8 @@ else:
     
     while sleep_time > 0:
         led_yellow.toggle()
-        light_sleep_long(2)
+        result = light_sleep_long(2)
+        if not result: break
         sleep_time -= 2
         
 machine.reset()
