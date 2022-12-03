@@ -1,26 +1,29 @@
 from epaper import Screen
-from calendar import Calendar
-from garbage import Garbage
-from weather import Weather
 from machine import RTC
 import network
 import secrets
 import time
-import urequests
 import gc
 import micropython
 
-# Requires https://ghubcoder.github.io/posts/pico-w-deep-sleep-with-micropython/
-# import picosleep
-# Commented out as picosleep does not wake up sometimes
-
+debugging = False
 
 led_yellow = machine.Pin(15, machine.Pin.OUT)
 button = machine.Pin(16, machine.Pin.IN, machine.Pin.PULL_DOWN)
+rtc = machine.RTC()
 
 error = False
 notification = False
 wlan = network.WLAN(network.STA_IF)
+
+def print_mem_info(label=None):
+    global debugging
+    
+    if debugging:
+        if label is not None:
+            print(label)
+        print('Free memory with buffers {}'.format(gc.mem_free()))
+        micropython.mem_info(True)        
 
 def connect():
     global wlan
@@ -51,18 +54,76 @@ def disconnect():
         time.sleep(1)
         print('.', end='')
         attempts = attempts - 1        
+
+
+def light_if_allowed():
+    global led_yellow
+    global rtc
     
+    dt = rtc.datetime()
+    month = dt[1]
+    hour = dt[4]
+    
+    del dt
+    
+    if month >= 11 or month <= 3:
+        hour += 1  # Winter time
+    else:
+        hour += 2  # Summer time
+        
+    if hour < 7 or hour > 22:
+        return
+   
+    led_yellow.value(1)           
+
+
+def was_there_alarm_today():
+    global rtc
+    
+    dt = rtc.datetime()
+    day = dt[2]
+    
+    del dt
+
+    try:
+        tfile = open("last_blink.txt", "r")
+        try:
+            last_day = int(tfile.read())
+        finally:
+            tfile.close()
+            del tfile
+    except:
+        last_day = day
+        
+    print('Last blinked on {}, today is {}'.format(last_day, day))
+            
+    return last_day != day
+
+
+def snooze():
+    dt = rtc.datetime()
+    day = dt[2]
+
+    print('Snoozed on {}'.format(day))
+    
+    tfile = open("last_blink.txt", "w")
+    try:
+        tfile.write(day)
+    finally:
+        tfile.close()
+        del tfile
 
 
 def calendar_update():
     global wlan
+    global rtc
     
-    # ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
-    # erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    #ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
+    #erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
     ebb = None
     erb = None
 
-    print('Free memory with buffers {}'.format(gc.mem_free()))
+    print_mem_info()
 
     connect()
     
@@ -76,6 +137,8 @@ def calendar_update():
         
         # Get current date
         print('Getting current date/time...')
+        
+        import urequests
         date_time_r = urequests.get("http://date.jsontest.com")
         try:
             print('Done', date_time_r)
@@ -86,12 +149,19 @@ def calendar_update():
         finally:
             date_time_r.close()
 
-        # rtc = machine.RTC()
-        # rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
+        rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
         print('Received datetime: ', dt)
         
         del ms
-         
+        del urequests
+        
+        light_if_allowed()
+
+        gc.collect()
+        
+        print_mem_info('1')
+
+        from garbage import Garbage
         # Get garbage schedule
         print('Free memory {}'.format(gc.mem_free()))
         print('Getting garbage schedule...')
@@ -100,24 +170,39 @@ def calendar_update():
         print(' - getting a token...')
         garbage.get_token()
         
+        gc.collect()
+        
+        print_mem_info('2')
+       
         print(' - getting schedule...')
         schedule = garbage.get_schedule(dt)
         for s in schedule:
             print(s)
             
         del garbage
+        del Garbage
+        
+        gc.collect()
+        
+        print_mem_info('3')
+        
+        from weather import Weather
         
         # Get weather
         weather = Weather()
         forecast = weather.get_weather(dt)
         
         del weather
+        del Weather
         
         disconnect()
         
         gc.collect()
         
+        print_mem_info('4')
+        
         # Draw calendar
+        from calendar import Calendar
         epd = Screen(ebb, erb)        
         try:
             epd.Clear()
@@ -147,7 +232,7 @@ def calendar_update():
 def calendar_cycle():
     gc.collect()
     print('Free memory {}'.format(gc.mem_free()))
-    led_yellow.value(1)
+
     result = False
     exception = False
     try:
@@ -158,7 +243,7 @@ def calendar_cycle():
         exception = True
         sys.print_exception(e)
         
-        micropython.mem_info()
+        micropython.mem_info(True)
         
         # Log last exception
         efile = open("last_exception.txt", "w")
@@ -210,6 +295,7 @@ def light_sleep_long(duration_seconds, ignore_button=False):
     return True
             
 
+micropython.alloc_emergency_exception_buf(100)
 (r, e) = calendar_cycle()
 notification = r
 error = e
@@ -224,14 +310,20 @@ if not error and not notification:
     
 elif not error and notification:
     print('Notification...')
+    
+    already_alarmed = was_there_alarm_today()    
     while sleep_time > 0:
         led_yellow.value(0)
         result = light_sleep_long(5)
-        if not result: break
+        if not result:
+            snooze()
+            break
         
-        led_yellow.value(1)
+        if not already_alarmed: light_if_allowed()        
         result = light_sleep_long(1)
-        if not result: break
+        if not result:
+            snooze()
+            break
         sleep_time -= 7
         
     led_yellow.value(0)
@@ -247,7 +339,10 @@ else:
     sleep_time = 60 * 60 * 1
     
     while sleep_time > 0:
-        led_yellow.toggle()
+        light_if_allowed()
+        result = light_sleep_long(2)
+        led_yellow.value(0)
+        if not result: break
         result = light_sleep_long(2)
         if not result: break
         sleep_time -= 2

@@ -14,9 +14,12 @@ class Garbage:
             'x-secret': secrets.GARBAGE_SECRET
             })
         try:
-            self.token = token_r.json()['accessToken']
+            print(token_r.json())
+            self.token = str(token_r.json()['accessToken'])
         finally:
             token_r.close()
+            del token_r
+            
         return self.token
     
     def get_schedule(self, dt_tuple):
@@ -44,5 +47,6 @@ class Garbage:
                 
         finally:
             schedule_r.close()
+            del schedule_r
         
         return result
