@@ -93,11 +93,11 @@ def was_there_alarm_today():
             tfile.close()
             del tfile
     except:
-        last_day = day
+        last_day = day - 1
         
     print('Last blinked on {}, today is {}'.format(last_day, day))
             
-    return last_day != day
+    return last_day == day
 
 
 def snooze():
@@ -108,7 +108,7 @@ def snooze():
     
     tfile = open("last_blink.txt", "w")
     try:
-        tfile.write(day)
+        tfile.write(str(day))
     finally:
         tfile.close()
         del tfile
@@ -320,7 +320,7 @@ elif not error and notification:
             break
         
         if not already_alarmed: light_if_allowed()        
-        result = light_sleep_long(1)
+        result = light_sleep_long(2)
         if not result:
             snooze()
             break
