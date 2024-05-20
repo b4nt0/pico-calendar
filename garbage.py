@@ -29,7 +29,7 @@ class Garbage:
             self.get_token()
             
         dt_start = dt_tuple
-        dt_end = DateUtil.add_days(dt_start, 7)
+        dt_end = DateUtil.add_days(dt_start, 1)
         schedule_r = urequests.get(
             secrets.GARBAGE_SCHEDULE_URL.format(dt_start=DateUtil.date_to_iso(dt_start), dt_end=DateUtil.date_to_iso(dt_end)), headers={
                 'x-consumer': secrets.GARBAGE_CONSUMER,

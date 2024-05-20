@@ -1,29 +1,75 @@
-from epaper import Screen
+# Calendar & reminder
+# -------------------
+
+# Hard-coded configuration
+# ------------------------
+# DST correction
+# Do-not-disturb hours
+# Before 1pm = today's events, otherwise tomorrow's events
+
+# Garbage reminder for tomorrow or today
+# --------------------------------------
+# Blue LED = PMD
+# Yellow LED = Paper cardboard
+# Green LED = GFT + Mixed
+
+# Weather forecast
+# ----------------
+# Mini-display = Temperature range, date
+
+# Busy/error indicator
+# --------------------
+# Mini-display indicates progress = In progress
+# Mini-display shows error = Error occurred
+
+# Button
+# ------
+# Shut down all LEDs until the next morning
+
 from machine import RTC
 import network
 import secrets
 import time
 import gc
 import micropython
+from lcd import LcdApi
+from i2c_lcd import I2cLcd, put_line, status, content, lcd
+from calendar import DateUtil, Calendar
 
 debugging = False
 
-led_yellow = machine.Pin(15, machine.Pin.OUT)
-button = machine.Pin(16, machine.Pin.IN, machine.Pin.PULL_DOWN)
-rtc = machine.RTC()
+# Settings
+NEXT_DAY_FORECAST_HOUR = 12
+TIMEZONE_UTC_INCREMENT = 1
+TOO_EARLY = 6
+TOO_LATE = 11
+UPDATE_EVERY_X_HOURS = 6
+CHECK_LIGHTS_EVERY_X_SECONDS = 120
 
+# LED pin numbers
+LED_PMD = machine.Pin(17, machine.Pin.OUT)
+LED_PAPIER = machine.Pin(15, machine.Pin.OUT)
+LED_GFT = machine.Pin(14, machine.Pin.OUT)
+LED_HUISVUIL = None
+
+# Snooze pin number
+snooze_button = machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_DOWN)
+
+# Real-time clock
+rtc = None
+
+# Globals
 error = False
 notification = False
 wlan = network.WLAN(network.STA_IF)
+pmd = False
+papier = False
+gft = False
+huisvuil = False
+backlight = True
+snoozed = False
+unsnoozed = False
 
-def print_mem_info(label=None):
-    global debugging
-    
-    if debugging:
-        if label is not None:
-            print(label)
-        print('Free memory with buffers {}'.format(gc.mem_free()))
-        micropython.mem_info(True)        
 
 def connect():
     global wlan
@@ -40,6 +86,18 @@ def connect():
         attempts = attempts - 1
 
 
+def status_clock(line_num = 1):
+    if rtc is None: return
+    dt = rtc.datetime()
+    day = dt[2]
+    month = dt[1]
+    year = dt[0] % 100
+    hour = dt[4]
+    minute = dt[5]
+    timestring="%02d-%02d-%02d %02d:%02d"%(day, month, year, hour, minute)
+    put_line(timestring, line_num)
+    
+
 def disconnect():
     # Disconnect LAN
     global wlan
@@ -53,36 +111,53 @@ def disconnect():
     while wlan.isconnected() and attempts > 0:
         time.sleep(1)
         print('.', end='')
-        attempts = attempts - 1        
-
-
-def light_if_allowed():
-    global led_yellow
-    global rtc
-    
-    dt = rtc.datetime()
-    month = dt[1]
-    hour = dt[4]
-    
-    del dt
-    
-    if month >= 11 or month <= 3:
-        hour += 1  # Winter time
-    else:
-        hour += 2  # Summer time
+        attempts = attempts - 1
         
-    if hour < 7 or hour > 22:
-        return
-   
-    led_yellow.value(1)           
+        
+def correct_for_timezone(local_time):
+    month = local_time[1]
 
+    if month >= 11 or month <= 3:
+        hour = TIMEZONE_UTC_INCREMENT      # Winter time
+    else:
+        hour = TIMEZONE_UTC_INCREMENT + 1  # Summer time
+        
+    return DateUtil.add_hours(local_time, hour)
+
+
+def light(led):
+    if led is None:
+        return
+    
+    led.value(1)
+    
+
+def dim(led):
+    if led is None:
+        return
+    
+    led.value(0)
+    
+
+def dim_all():
+    global backlight
+    
+    if backlight:
+      lcd.hal_backlight_off()
+      backlight = False
+      
+    dim(LED_GFT)
+    dim(LED_PMD)
+    dim(LED_PAPIER)
+    dim(LED_HUISVUIL)
+    
 
 def was_there_alarm_today():
-    global rtc
+    if rtc is None:
+        return False
     
     dt = rtc.datetime()
-    day = dt[2]
-    
+    day = dt[2]    
     del dt
 
     try:
@@ -100,36 +175,89 @@ def was_there_alarm_today():
     return last_day == day
 
 
-def snooze():
-    dt = rtc.datetime()
-    day = dt[2]
-
-    print('Snoozed on {}'.format(day))
+def check_lights():
+    global backlight
     
-    tfile = open("last_blink.txt", "w")
-    try:
-        tfile.write(str(day))
-    finally:
-        tfile.close()
-        del tfile
+    if rtc is None: return
+    
+    dt = rtc.datetime()
+    hour = dt[4]        
+    del dt
+    
+    print('Hour {} WTAT {} Unsnoozed {}'.format(hour, was_there_alarm_today(), unsnoozed))
+    
+    if (hour < TOO_EARLY or hour > TOO_LATE or was_there_alarm_today()) and not unsnoozed:
+        dim_all()
+        return
+    
+    # Light up the screen
+    if not backlight:
+        lcd.hal_backlight_on()
+        backlight = True
+    
+    # Light the lights
+    if gft: light(LED_GFT)
+    else: dim(LED_GFT)
+    
+    if pmd: light(LED_PMD)
+    else: dim(LED_PMD)
+    
+    if huisvuil: light(LED_HUISVUIL)
+    else: dim(LED_HUISVUIL)
+    
+    if papier: light(LED_PAPIER)
+    else: dim(LED_PAPIER)
+
+
+def snooze():
+    global snoozed
+    global unsnoozed
+
+    if unsnoozed and backlight and not snoozed:
+        # Snooze back
+        unsnoozed = False
+        
+    if snoozed:
+        # Second press on the 'Snooze' button causes reset
+        machine.reset()
+        
+    # Check if we're now on or off
+    if backlight:
+        snoozed = True
+        dim_all()
+        
+        if rtc is None:
+            return
+        
+        dt = rtc.datetime()
+        day = dt[2]
+
+        print('Snoozed on {}'.format(day))
+    
+        tfile = open("last_blink.txt", "w")
+        try:
+            tfile.write(str(day))
+        finally:
+            tfile.close()
+            del tfile
+            
+    else:
+        print('Unsnoozed')
+        unsnoozed = True
+        check_lights()
 
 
 def calendar_update():
     global wlan
     global rtc
     
-    #ebb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
-    #erb = bytearray(Screen.EPD_WIDTH * Screen.EPD_HEIGHT // 8)
-    ebb = None
-    erb = None
-
-    print_mem_info()
-
+    status('Connecting...')
     connect()
     
     if not wlan.isconnected():
        # Can't connect, print a message
        print("can't connect to wifi")
+       content('No Wi-Fi')
        raise Exception("Can't connect to wifi")
         
     else:
@@ -137,6 +265,7 @@ def calendar_update():
         
         # Get current date
         print('Getting current date/time...')
+        status('Get time...')
         
         import urequests
         date_time_r = urequests.get("http://date.jsontest.com")
@@ -145,206 +274,108 @@ def calendar_update():
              
             ms = date_time_r.json()['milliseconds_since_epoch']
             dt = time.localtime(int(ms / 1000))
+            dt = correct_for_timezone(dt)
             
         finally:
             date_time_r.close()
 
+        rtc = machine.RTC()
         rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
+        status_clock(0)
         print('Received datetime: ', dt)
         
         del ms
         del urequests
         
-        light_if_allowed()
-
-        gc.collect()
+        # Define what date to announce for
+        announce_dt = dt if dt[3] < NEXT_DAY_FORECAST_HOUR else DateUtil.add_days(dt, 1)
         
-        print_mem_info('1')
+        # Get garbage schedule
+        print('Getting garbage schedule...')
+        status('Update garbage..')
 
         from garbage import Garbage
-        # Get garbage schedule
-        print('Free memory {}'.format(gc.mem_free()))
-        print('Getting garbage schedule...')
         garbage = Garbage()
         
         print(' - getting a token...')
         garbage.get_token()
         
-        gc.collect()
-        
-        print_mem_info('2')
-       
         print(' - getting schedule...')
-        schedule = garbage.get_schedule(dt)
+        schedule = garbage.get_schedule(announce_dt)
         for s in schedule:
             print(s)
             
         del garbage
         del Garbage
         
-        gc.collect()
-        
-        print_mem_info('3')
-        
+        # Get weather
+        print('Getting weather schedule...')
+        status('Update weather..')
         from weather import Weather
         
-        # Get weather
         weather = Weather()
-        forecast = weather.get_weather(dt)
+        forecast = weather.get_weather(announce_dt)
+        print(forecast)
         
         del weather
         del Weather
         
         disconnect()
         
-        gc.collect()
+        # Draw calendar status
+        calendar = Calendar(announce_dt)
+        calendar.draw_weather(forecast)
+        calendar.draw_garbage(schedule)
         
-        print_mem_info('4')
+        global pmd
+        global gft
+        global huisvuil
+        global papier
         
-        # Draw calendar
-        from calendar import Calendar
-        epd = Screen(ebb, erb)        
-        try:
-            epd.Clear()
-            
-            calendar = Calendar(epd, dt)
-            calendar.draw_calendar()
-            calendar.draw_garbage(schedule)
-            calendar.draw_weather(forecast)
-            calendar.draw_announcements()
-            calendar.draw_last_updated()
-            
-            important_announcement = calendar.announce_gs_tomorrow
-            
-            epd.display()
-            epd.delay_ms(500)
-                
-            epd.delay_ms(2000)
-        
-        finally:
-            print("Screen sleep")
-            epd.sleep()
+        pmd = calendar.pmd
+        gft = calendar.gft
+        huisvuil = calendar.huisvuil
+        papier = calendar.papier
+        print('PMD {}, GFT {}, HV {}, PK {}'.format(pmd, gft, huisvuil, papier))
         
         print('All done')
-    return important_announcement
         
-
-def calendar_cycle():
-    gc.collect()
-    print('Free memory {}'.format(gc.mem_free()))
-
-    result = False
-    exception = False
+        
+try:
+    time.sleep(1)
+    lcd.clear()
+    status('Updating...')
+    calendar_update()
+    
+    sleep_time = 60 * 60 * UPDATE_EVERY_X_HOURS
+    
+    # Sleep, but check the button and the lights every now and then
+    light_check_counter = 1
+    while sleep_time > 0:
+        time.sleep(1)
+        if snooze_button.value() == 1:
+            snooze()
+                
+        sleep_time -= 1
+        light_check_counter -= 1
+        
+        if light_check_counter <= 0:
+            check_lights()
+            light_check_counter = CHECK_LIGHTS_EVERY_X_SECONDS
+        
+    machine.reset()
+        
+except Exception as e:
+    import sys
+    
+    exception = True
+    sys.print_exception(e)
+    
+    # Log last exception
+    efile = open("last_exception.txt", "w")
     try:
-        result = calendar_update();
-    except Exception as e:
-        import sys
-        
-        exception = True
-        sys.print_exception(e)
-        
-        micropython.mem_info(True)
-        
-        # Log last exception
-        efile = open("last_exception.txt", "w")
         sys.print_exception(e, efile)
+    finally:
         efile.close()
-
-    led_yellow.value(0)
-    gc.collect()        
-    print('Free memory {}'.format(gc.mem_free()))
-    return (result, exception)
-
-
-def light_sleep_long(duration_seconds, ignore_button=False):
-    global button
-    
-    if duration_seconds <= 0: return True
-    
-    max_light_sleep = 5 * 1
-    duration = duration_seconds
-    
-    accumulated01 = 0
-    while duration > 0:
-        if not ignore_button and button.value() == 1:
-            return False
         
-        time.sleep_ms(100)
-        accumulated01 += 1
-        if accumulated01 == 10:
-          duration -= 1
-          accumulated01 = 0
-        
-        if duration == 0: return True
-        
-        if duration >= max_light_sleep:
-            # machine.lightsleep(max_light_sleep * 1000)
-            # picosleep.seconds(max_light_sleep)
-
-            # Dormant sleep does not wake up :(
-            time.sleep(max_light_sleep)
-            duration -= max_light_sleep
-        else:
-            # machine.lightsleep(duration * 1000)
-            # picosleep.seconds(duration)
-            
-            # Dormant sleep does not wake up :(
-            time.sleep(max_light_sleep)
-            duration = 0
-            
-    return True
-            
-
-micropython.alloc_emergency_exception_buf(100)
-(r, e) = calendar_cycle()
-notification = r
-error = e
-sleep_time = 60 * 60 * 4
-
-disconnect()
-
-if not error and not notification:
-    print('Sleeping...')
-    # time.sleep(sleep_time)
-    light_sleep_long(sleep_time)
-    
-elif not error and notification:
-    print('Notification...')
-    
-    already_alarmed = was_there_alarm_today()    
-    while sleep_time > 0:
-        led_yellow.value(0)
-        result = light_sleep_long(5)
-        if not result:
-            snooze()
-            break
-        
-        if not already_alarmed: light_if_allowed()        
-        result = light_sleep_long(2)
-        if not result:
-            snooze()
-            break
-        sleep_time -= 7
-        
-    led_yellow.value(0)
-    
-    if sleep_time > 0:
-        light_sleep_long(10, True)
-        sleep_time -= 10
-        light_sleep_long(sleep_time)
-   
-else:
-    print('Error...')
-    
-    sleep_time = 60 * 60 * 1
-    
-    while sleep_time > 0:
-        light_if_allowed()
-        result = light_sleep_long(2)
-        led_yellow.value(0)
-        if not result: break
-        result = light_sleep_long(2)
-        if not result: break
-        sleep_time -= 2
-        
-machine.reset()
+    status("Can't update")
