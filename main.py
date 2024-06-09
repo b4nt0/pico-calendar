@@ -78,10 +78,11 @@ def connect():
     wlan.active(True)
     wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
     
-    attempts = 5
+    attempts = 10
     print("Attempting to connect...", end='')
     while not wlan.isconnected() and attempts > 0:
-        time.sleep(1)
+        status(f'Connecting {attempts}')
+        time.sleep(11 - attempts)
         print('.', end='')
         attempts = attempts - 1
 
@@ -153,6 +154,9 @@ def dim_all():
     
 
 def was_there_alarm_today():
+    if snoozed and not unsnoozed:
+        return True
+    
     if rtc is None:
         return False
     
@@ -184,14 +188,16 @@ def check_lights():
     hour = dt[4]        
     del dt
     
-    print('Hour {} WTAT {} Unsnoozed {}'.format(hour, was_there_alarm_today(), unsnoozed))
+    print('Hour {}, was there alarm today {}, unsnoozed {}'.format(hour, was_there_alarm_today(), unsnoozed))
     
     if (hour < TOO_EARLY or hour > TOO_LATE or was_there_alarm_today()) and not unsnoozed:
+        print('No-disturb hours, dimming')
         dim_all()
         return
     
     # Light up the screen
     if not backlight:
+        print('Lighting!')
         lcd.hal_backlight_on()
         backlight = True
     
@@ -348,7 +354,23 @@ try:
     calendar_update()
     
     sleep_time = 60 * 60 * UPDATE_EVERY_X_HOURS
+
+except Exception as e:
+    import sys
     
+    exception = True
+    sys.print_exception(e)
+    
+    # Log last exception
+    efile = open("last_exception.txt", "w")
+    try:
+        sys.print_exception(e, efile)
+    finally:
+        efile.close()
+        
+    status("Can't update")
+
+finally:
     # Sleep, but check the button and the lights every now and then
     light_check_counter = 1
     while sleep_time > 0:
@@ -365,17 +387,3 @@ try:
         
     machine.reset()
         
-except Exception as e:
-    import sys
-    
-    exception = True
-    sys.print_exception(e)
-    
-    # Log last exception
-    efile = open("last_exception.txt", "w")
-    try:
-        sys.print_exception(e, efile)
-    finally:
-        efile.close()
-        
-    status("Can't update")
