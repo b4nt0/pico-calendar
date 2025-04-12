@@ -30,6 +30,7 @@ from machine import RTC
 import network
 import secrets
 import time
+import ntptime
 import gc
 import micropython
 from lcd import LcdApi
@@ -115,7 +116,8 @@ def disconnect():
         attempts = attempts - 1
         
         
-def correct_for_timezone(local_time):
+def correct_for_timezone():
+    local_time = time.localtime() 
     month = local_time[1]
 
     if month >= 11 or month <= 3:
@@ -123,8 +125,19 @@ def correct_for_timezone(local_time):
     else:
         hour = TIMEZONE_UTC_INCREMENT + 1  # Summer time
         
-    return DateUtil.add_hours(local_time, hour)
+    corrected_time = DateUtil.add_hours(local_time, hour)
+    rtc_time = (
+        corrected_time[0],
+        corrected_time[1],
+        corrected_time[2],
+        corrected_time[6],
+        corrected_time[3],
+        corrected_time[4],
+        corrected_time[5],
+        0
+    )
 
+    rtc.datetime(rtc_time)
 
 def light(led):
     if led is None:
@@ -140,12 +153,12 @@ def dim(led):
     led.value(0)
     
 
-def dim_all():
+def dim_all(force = False):
     global backlight
     
-    if backlight:
-      lcd.hal_backlight_off()
-      backlight = False
+    if backlight or force:
+        lcd.hal_backlight_off()
+        backlight = False
       
     dim(LED_GFT)
     dim(LED_PMD)
@@ -190,7 +203,7 @@ def check_lights():
     
     print('Hour {}, was there alarm today {}, unsnoozed {}'.format(hour, was_there_alarm_today(), unsnoozed))
     
-    if (hour < TOO_EARLY or hour > TOO_LATE or was_there_alarm_today()) and not unsnoozed:
+    if (hour < TOO_EARLY or hour > TOO_LATE or was_there_alarm_today()) and not unsnoozed and not debugging:
         print('No-disturb hours, dimming')
         dim_all()
         return
@@ -257,6 +270,8 @@ def calendar_update():
     global wlan
     global rtc
     
+    dim_all()
+    
     status('Connecting...')
     connect()
     
@@ -273,25 +288,23 @@ def calendar_update():
         print('Getting current date/time...')
         status('Get time...')
         
-        import urequests
-        date_time_r = urequests.get("http://date.jsontest.com")
-        try:
-            print('Done', date_time_r)
-             
-            ms = date_time_r.json()['milliseconds_since_epoch']
-            dt = time.localtime(int(ms / 1000))
-            dt = correct_for_timezone(dt)
-            
-        finally:
-            date_time_r.close()
-
+        attempts = 5
+        while attempts > 0:
+            try:
+                ntptime.settime()
+                break
+            except:
+                attempts -= 1
+                time.sleep(1)
+                
+        dt = time.localtime()
         rtc = machine.RTC()
-        rtc.datetime((dt[0], dt[1], dt[2], dt[6], dt[3], dt[4], dt[5], 0))
+        
+        correct_for_timezone()
         status_clock(0)
         print('Received datetime: ', dt)
         
-        del ms
-        del urequests
+        check_lights()
         
         # Define what date to announce for
         announce_dt = dt if dt[3] < NEXT_DAY_FORECAST_HOUR else DateUtil.add_days(dt, 1)
@@ -302,9 +315,6 @@ def calendar_update():
 
         from garbage import Garbage
         garbage = Garbage()
-        
-        print(' - getting a token...')
-        garbage.get_token()
         
         print(' - getting schedule...')
         schedule = garbage.get_schedule(announce_dt)
@@ -338,23 +348,23 @@ def calendar_update():
         global huisvuil
         global papier
         
-        pmd = calendar.pmd
-        gft = calendar.gft
-        huisvuil = calendar.huisvuil
-        papier = calendar.papier
+        pmd = calendar.pmd or debugging
+        gft = calendar.gft or debugging
+        huisvuil = calendar.huisvuil or debugging
+        papier = calendar.papier or debugging
         print('PMD {}, GFT {}, HV {}, PK {}'.format(pmd, gft, huisvuil, papier))
         
         print('All done')
         
         
+sleep_time = 60 * 60 * UPDATE_EVERY_X_HOURS
+
 try:
     time.sleep(1)
     lcd.clear()
     status('Updating...')
     calendar_update()
     
-    sleep_time = 60 * 60 * UPDATE_EVERY_X_HOURS
-
 except Exception as e:
     import sys
     

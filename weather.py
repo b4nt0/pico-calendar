@@ -1,4 +1,4 @@
-import urequests
+from util_requests import request_get
 from calendar import DateUtil
 import secrets
 
@@ -12,7 +12,7 @@ class Weather:
         
         result = []
         
-        weather_r = urequests.get(
+        weather_r = request_get(
             Weather.query_string.format(dt_start=DateUtil.date_to_iso(dt_start), dt_end=DateUtil.date_to_iso(dt_end), api_key=secrets.WEATHER_API_KEY), headers={})
         try:
             weather_json = weather_r.json()
