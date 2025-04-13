@@ -75,17 +75,21 @@ unsnoozed = False
 def connect():
     global wlan
     
-    # Establish an internet connection
-    wlan.active(True)
-    wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
+    hard_attempts = 3
     
-    attempts = 10
-    print("Attempting to connect...", end='')
-    while not wlan.isconnected() and attempts > 0:
-        status(f'Connecting {attempts}')
-        time.sleep(11 - attempts)
-        print('.', end='')
-        attempts = attempts - 1
+    while not wlan.isconnected() and hard_attempts > 0:
+        # Establish an internet connection
+        wlan.active(True)
+        time.sleep(1)
+        wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
+        
+        attempts = 10
+        print("Attempting to connect...", end='')
+        while not wlan.isconnected() and attempts > 0:
+            status(f'Connecting {attempts}')
+            time.sleep(11 - attempts)
+            print('.', end='')
+            attempts = attempts - 1
 
 
 def status_clock(line_num = 1):
@@ -269,6 +273,8 @@ def snooze():
 def calendar_update():
     global wlan
     global rtc
+    global snoozed
+    global backlight
     
     dim_all()
     
@@ -279,6 +285,7 @@ def calendar_update():
        # Can't connect, print a message
        print("can't connect to wifi")
        content('No Wi-Fi')
+       snoozed = True  # So that the next click on "snooze" would reset
        raise Exception("Can't connect to wifi")
         
     else:
